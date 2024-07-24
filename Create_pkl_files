@@ -1,0 +1,61 @@
+
+
+# Load data
+ratings = pd.read_csv('/nfs/RecRanker/llm_recommender/Datasets/ratings.csv', sep='\t', header=None, names=['userId', 'movieId', 'rating', 'timestamp'])
+movie_info = pd.read_csv('/nfs/RecRanker/llm_recommender/Datasets/movie_info.csv', sep='|', header=None, encoding='latin-1')
+
+# Strip whitespace and convert to integers
+ratings['userId'] = ratings['userId'].apply(lambda x: int(str(x).strip()))
+ratings['movieId'] = ratings['movieId'].apply(lambda x: int(str(x).strip()))
+ratings['rating'] = ratings['rating'].apply(lambda x: float(str(x).strip()))
+ratings['timestamp'] = ratings['timestamp'].apply(lambda x: int(str(x).strip()))
+
+
+# Creating item_id_mapping and user_id_mapping
+user_id_mapping = {id: idx for idx, id in enumerate(ratings['userId'].unique())}
+item_id_mapping = {id: idx for idx, id in enumerate(ratings['movieId'].unique())}
+
+# Creating inverse mappings
+user_id_mapping_inv = {idx: id for id, idx in user_id_mapping.items()}
+item_id_mapping_inv = {idx: id for id, idx in item_id_mapping.items()}
+
+# Save mappings
+with open('/nfs/RecRanker/llm_recommender/Datasets/user_id_mapping.pkl', 'wb') as f:
+    pickle.dump(user_id_mapping, f)
+with open('/nfs/RecRanker/llm_recommender/Datasets/item_id_mapping.pkl', 'wb') as f:
+    pickle.dump(item_id_mapping, f)
+
+# Creating user-item interaction matrix
+num_users = len(user_id_mapping)
+num_items = len(item_id_mapping)
+interaction_matrix = np.zeros((num_users, num_items))
+
+for row in ratings.itertuples():
+    user_idx = user_id_mapping[row.userId]
+    item_idx = item_id_mapping[row.movieId]
+    interaction_matrix[user_idx, item_idx] = row.rating
+
+# Save the interaction matrix
+with open('/nfs/RecRanker/llm_recommender/Datasets/rating_matrix.pkl', 'wb') as f:
+    pickle.dump(interaction_matrix, f)
+
+# Placeholder for item and user embeddings
+item_embeddings = np.random.rand(num_items, 64)
+user_embeddings = np.random.rand(num_users, 64)
+
+# Save item and user embeddings
+with open('/nfs/RecRanker/llm_recommender/Datasets/ml-100k_item.pkl', 'wb') as f:
+    pickle.dump(item_embeddings, f)
+with open('/nfs/RecRanker/llm_recommender/Datasets/ml-100k_user.pkl', 'wb') as f:
+    pickle.dump(user_embeddings, f)
+
+# Placeholder for predicted scores
+predicted_scores = np.random.rand(num_users, num_items)
+
+# Save predicted scores
+with open('/nfs/RecRanker/llm_recommender/Datasets/ml-100k_pred.pkl', 'wb') as f:
+    pickle.dump(predicted_scores, f)
+
+# Save user embeddings separately
+with open('/nfs/RecRanker/llm_recommender/Datasets/ml-100k_user_emb.pkl', 'wb') as f:
+    pickle.dump(user_embeddings, f)
