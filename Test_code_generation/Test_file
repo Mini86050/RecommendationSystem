@@ -1,0 +1,152 @@
+import pandas as pd
+import random
+import pickle
+
+random.seed(42)
+
+dataset_names = ['ml-100k']
+model_names = ['LightGCN']
+
+isHint = True
+
+for dataset_name in dataset_names:
+    with open('/nfs/RecRanker/llm_recommender/Datasets/ml-100k_item.pkl', "rb") as file:
+        cm_item = pickle.load(file)
+    with open('/nfs/RecRanker/llm_recommender/Datasets/ml-100k_user.pkl', "rb") as file:
+        cm_user = pickle.load(file)
+    with open('/nfs/RecRanker/llm_recommender/Datasets/ml-100k_pred.pkl', "rb") as file:
+        cm_pred = pickle.load(file)
+
+    def sort_list_reverse_with_indices(lst):
+        sorted_indices = sorted(enumerate(lst), key=lambda x: x[1], reverse=True)
+        sorted_indices = [index for index, _ in sorted_indices]
+        return sorted_indices
+
+    with open('/nfs/RecRanker/llm_recommender/Datasets/item_id_mapping.pkl', "rb") as file:
+        mf_item = pickle.load(file)
+    with open('/nfs/RecRanker/llm_recommender/Datasets/user_id_mapping.pkl', "rb") as file:
+        mf_user = pickle.load(file)
+    with open('/nfs/RecRanker/llm_recommender/Datasets/rating_matrix.pkl', "rb") as file:
+        mf_pred = pickle.load(file)
+
+    kws = 'movie'
+    kk = 5
+
+    if dataset_name == 'ml-100k':
+        df_like = pd.read_csv('/nfs/RecRanker/llm_recommender/Datasets/train_set.txt', names=['u', 'i', 'r', 't'], sep=' ')
+        df_dislike = pd.read_csv('/nfs/RecRanker/llm_recommender/Datasets/dislike.txt', header=None, names=['u', 'i', 'r', 't'])
+        movie_info = pd.read_csv('/nfs/RecRanker/llm_recommender/Datasets/movie_info.csv', header=None,
+                                 names=['movie_id', 'movie_name', 'url', 'genre', 'genr0', 'genre1', 'genre2',
+                                        'genre3', 'genre4', 'genre5', 'genre6', 'genre7', 'genre8', 'genre9',
+                                        'genre10', 'genre11', 'genre12', 'genre13', 'genre14', 'genre15', 'genre16',
+                                        'genre17', 'genre18', 'genre19'], sep='|', engine='python', encoding='latin-1')
+
+        movie_id_list = movie_info['movie_id'].tolist()
+        movie_name_list = movie_info['movie_name'].tolist()
+        movie_name_dict = {movie_id_list[i]: movie_name_list[i] for i in range(len(movie_name_list))}
+
+    mes_list_pairwise = []
+    mes_list_pairwise_inv = []
+    my_ran_list = []
+
+    '''
+    Pairwise ranking
+    '''
+    my_list = df_like['i'].tolist()
+    random.shuffle(my_list)
+    if 'book' not in dataset_name:
+        my_list = [int(x) for x in my_list]
+    else:
+        my_list = [x for x in my_list]
+
+    if len(df_like) > 55:
+        topk = 50
+    else:
+        topk = len(df_like) - 3
+
+    trainlist = my_list[:topk]
+
+    ran_list = [ii for ii in range(0, kk * 2)]
+    ran_list_1 = ran_list[:kk]
+    ran_list_2 = ran_list[kk:]
+    ran_list = ran_list_1 + ran_list_2
+    random.shuffle(ran_list)
+    my_ran_list.append(ran_list)
+
+    # Replace 'row' with an example dictionary for this example.
+    row = {f'v{ii}': my_list[ii % len(my_list)] for ii in range(1, 1 + 2 * kk)}
+
+    testlist_ = [row[f'v{ii}'] for ii in range(1, 1 + 2 * kk)]
+    my_ground_truth = []
+    for ii in range(0, kk, 1):
+        testlist = [testlist_[ran_list[ii]]]
+        neglist = [testlist_[ran_list[ii + kk]]]
+        historical_interactions = [f'"{movie_name_dict[i]}"' for i in trainlist]
+        false_items_set = [f'"{movie_name_dict[i]}"' for i in neglist]
+        answer_items_set = [f'"{movie_name_dict[i]}"' for i in testlist]
+
+        user_unpre = [f'"{movie_name_dict[i]}"' for i in df_dislike['i'].tolist()]
+
+        if len(user_unpre) < 3:
+            user_unpre = 'None.'
+        else:
+            user_unpre = ', '.join(user_unpre)
+
+        historical_interactions = ', '.join(historical_interactions)
+
+        try:
+            xx = cm_item[str(neglist[0])]
+            yy = cm_item[str(testlist[0])]
+            uu = cm_user[str(df_like['u'].iloc[0])]
+            if cm_pred[uu][yy] > cm_pred[uu][xx]:
+                cm_label = 'Yes.'
+            else:
+                cm_label = 'No.'
+        except Exception:
+            cm_label = 'Unknown.'
+
+        instruct0 = f'''You are a {kws} recommender system. Based on a user's likes and dislikes, determine if they would prefer one {kws} over another. Respond only with "Yes." or "No.".\n\n'''
+        instruct1 = f'''User's Liked {kws}s: <historical interactions>.\n\nUser's Disliked {kws}s: <user_unpre>\n\nQuestion: Would the user prefer <movie1> over <movie2>?'''
+        instruct2 = '''Hint: Another recommender system suggests the answer is "<cm_result>"'''
+        if isHint:
+            instruct1 += instruct2
+
+        instruct1 = instruct1.replace('<historical interactions>', historical_interactions).replace(
+            '<user_unpre>', user_unpre).replace('<movie1>', answer_items_set[0]).replace('<movie2>',
+                                                                                        false_items_set[0]).replace(
+            '<cm_result>', cm_label)
+        instruct2 = ''
+        fi = {'inst': instruct0 + instruct1 + instruct2}
+        mes_list_pairwise.append(fi)
+
+        instruct0 = f'''You are a {kws} recommender system. Based on a user's likes and dislikes, determine if they would prefer one {kws} over another. Respond only with "Yes." or "No.".\n\n'''
+        instruct1 = f'''User's Liked {kws}s: <historical interactions>.\n\nUser's Disliked {kws}s: <user_unpre>\n\nQuestion: Would the user prefer <movie1> over <movie2>?'''
+        instruct2 = '''Hint: Another recommender system suggests the answer is "<cm_result>"'''
+        if isHint:
+            instruct1 += instruct2
+
+        if cm_label == 'Yes.':
+            cm_label = 'No.'
+        elif cm_label == 'No.':
+            cm_label = 'Yes.'
+
+        instruct1 = instruct1.replace('<historical interactions>', historical_interactions).replace(
+            '<user_unpre>', user_unpre).replace('<movie2>', answer_items_set[0]).replace('<movie1>',
+                                                                                        false_items_set[0]).replace(
+            '<cm_result>', cm_label)
+        instruct2 = ''
+
+        fi = {'inst': instruct0 + instruct1 + instruct2}
+        mes_list_pairwise_inv.append(fi)
+
+    df = pd.DataFrame(my_ran_list)
+
+        with jsonlines.open('/nfs/RecRanker/llm_recommender/Pairwise_file/ml-100k_pairwise.jsonl',
+                mode='w') as writer:
+            writer.write_all(mes_list_pairwise)
+        with jsonlines.open('/nfs/RecRanker/llm_recommender/Pairwise_file/ml-100k_pairwise_inv.jsonl',
+                mode='w') as writer:
+            writer.write_all(mes_list_pairwise_inv)
+
+        df = pd.DataFrame(my_ran_list)
+        df.to_csv('/nfs/RecRanker/llm_recommender/Test_file/my_test_list_ml-100k.txt', header=None, index=None)
